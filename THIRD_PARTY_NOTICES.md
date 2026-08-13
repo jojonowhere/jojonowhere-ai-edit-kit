@@ -13,6 +13,7 @@
 | [uv](https://github.com/astral-sh/uv) | Python 環境管理 | MIT / Apache 2.0 雙授權 |
 | [思源黑體 Source Han Sans（TW子集）](https://github.com/adobe-fonts/source-han-sans) | 繁體中文字幕燒錄字體 | SIL Open Font License 1.1，著作權屬 Adobe |
 | [OpenCC](https://github.com/BYVoid/OpenCC) | 簡體轉繁體中文（含台灣用詞） | Apache License 2.0 |
+| [HyperFrames](https://github.com/heygen-com/hyperframes) | 選用，動畫疊加效果 | Apache License 2.0，著作權屬原專案；未實測，僅在使用者明確要求動畫效果時才需要 |
 
 本資源包不包含上述任何項目的原始碼副本——`setup.sh` 只會引導安裝或直接從官方來源下載，安裝到你自己的電腦上，使用時請直接遵守各項目自己的授權條款。
 
