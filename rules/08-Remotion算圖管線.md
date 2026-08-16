@@ -1,0 +1,55 @@
+# Remotion 算圖管線（正式懸浮光暈素材輸出）
+
+> 「剪接台」Artifact工具的懸浮發光效果（`.fx-float` CSS）只是給使用者在瀏覽器裡抓位置/時間點感覺用的**近似預覽**，不是最終成品畫質。真正要疊進Premiere的Logo／icon／文字動畫，要用Remotion（React算圖成影片的框架）跑出帶透明通道的正式檔案。共用元件放在 `remotion-starter/`，視覺規範見 [`07-懸浮光暈卡片視覺規範.md`](07-懸浮光暈卡片視覺規範.md)，什麼時候該做這件事、素材內容怎麼確認見 [`09-強調字貼紙內容確認規則.md`](09-強調字貼紙內容確認規則.md)。
+
+## 環境需求與安裝
+
+- 需要Node.js（實測v26.7.0）＋npm，**每支影片開一個獨立的Remotion專案資料夾**，不要沿用同一個專案剪第二支影片——不同影片的框框位置/時間點不一樣，混在同一個專案裡容易搞混哪個素材對應哪支影片。`remotion-starter/`裡的共用元件用複製的方式帶到新專案。
+- 安裝套件：`npm install remotion @remotion/cli react react-dom`。
+- **第一次使用要另外下載無頭瀏覽器**：`npx remotion browser ensure`（實測約93MB，Remotion算圖底層是用真的Chrome去渲染每一格畫面）。
+- 自訂本機字型（例如思源黑體這種本機已有`.otf`但不是Google Font的字型）：不能用`@remotion/google-fonts`，要自己用瀏覽器原生`FontFace` API手動載入＋`delayRender()`/`continueRender()`卡住算圖直到字型載完（見`remotion-starter/loadFonts.ts`），不然文字會用替代字型渲染或整段空白。
+
+## 【最重要】輸出透明通道影片的正確指令
+
+```bash
+npx remotion render src/index.tsx <CompositionId> out/<name>.mov \
+  --codec=prores --prores-profile=4444 \
+  --hardware-acceleration=disable \
+  --image-format=png --pixel-format=yuva444p10le
+```
+
+**四個參數缺一不可**，已實測踩過的坑：
+
+- 只給`--codec=prores`不給`--prores-profile=4444`：預設用`hq`profile，沒有透明通道。
+- 給了`--prores-profile=4444`但沒給`--hardware-acceleration=disable`：**macOS會自動選用硬體加速的`prores_videotoolbox`編碼器，這個編碼器不支援透明通道，會靜默地把透明通道拿掉**——不會報錯、影片正常輸出、看起來一切正常，只有實際疊圖合成時才會發現背景是黑的不是透明的。這是最容易漏掉、也最容易被誤判成「已經做對了」的一步。
+- 沒給`--image-format=png`：中介的每格畫面用預設格式擷取，同樣會遺失alpha。
+
+## 驗證透明通道真的存在（不要只看檔案有沒有輸出成功）
+
+渲染完成後實際抽一張中間畫面確認邊角像素的alpha值是不是0（透明），並且用兩種背景（純黑／明亮色）各合成一次看過——不要只看黑底，很多「發光看起來很乾淨」的效果疊在黑底上很好看，一疊到亮背景（例如天空、白牆）才會顯出「不夠白／不夠不透明」這種在黑底看不出來的髒感問題。
+
+直接用 `scripts/check_alpha.py` 做完整檢查（`ffprobe`確認`pix_fmt`、抽幀、角落alpha值、黑底/亮底合成預覽圖一次做完）：
+
+```bash
+python3 scripts/check_alpha.py out.mov --frame-time 1.0 --out-dir ./alpha_check
+```
+
+`pix_fmt`顯示`yuva444p...`（有`a`）才代表真的有透明通道，顯示`yuv422p...`（沒有`a`）代表上面四個參數哪裡漏了。
+
+## 交付物與尺寸規則
+
+- **主要交付物是個別素材檔案（ProRes4444透明通道），不是自動合成好的單一預覽影片**：用ffmpeg把每個素材疊回原始影片、輸出成一支完整合成預覽影片這件事本身精準度不夠可靠（overlay位置/尺寸的手動換算容易有落差）。改成使用者自己把素材拖進Premiere等剪輯軟體做最終定位跟微調，由人在真正的NLE裡對位比自動化overlay可靠。黑底／亮底合成截圖檢查還是要做，這是給使用者看「素材本身做得對不對、乾不乾淨」的快速預覽，不是要取代使用者自己在NLE裡的最終合成。如果使用者之後還是要求輸出單一合成預覽影片（例如快速討論用），才做，但不是預設流程。
+- **尺寸換算：一律用使用者在剪接台拉的框（`box.w`／`box.h`，匯出JSON裡的欄位，是frame寬高的分數）決定Remotion composition的實際`width`/`height`，不要自己挑一個尺寸**：
+  1. 換算基準用**使用者實際的來源／交付解析度**，不要用工具裡內嵌預覽影片的解析度——那支預覽通常為了控制Artifact檔案大小被壓縮過（例如720×1280），拿來算會讓輸出素材解析度不夠。
+  2. **預設假設使用者剪的影片至少是HD（長邊1920px）**，不確定實際交付解析度、或使用者之後可能升級到更高解析度來源時，用已知資訊裡最高的當基準，不要用偏低的猜測值省事。
+  3. `box_px_w = box.w × 交付寬度`、`box_px_h = box.h × 交付高度`算出來的數字，**實際設定Composition width/height時要再乘以1.2倍（多留20%餘裕）**——讓素材本身解析度比框框理論上剛好需要的更高一截，使用者在NLE裡對位時即使又手動放大一點、或最終畫布比預期大，都還有畫質空間可以撐，不會一放大就出現糊/鋸齒。
+  4. 有固定原始比例的內容（圖片／Logo）仍按「維持原始比例、不拉伸變形」置中呈現在這個略大的畫布裡，多出來的20%是透明安全邊界，不是把內容硬撐大；**沒有固定比例的特效類內容則寬高各自獨立撐滿**（見 [`07-懸浮光暈卡片視覺規範.md`](07-懸浮光暈卡片視覺規範.md) 的對應說明）。
+  5. 如果匯出的JSON裡缺少`box`欄位，代表工具那次沒有正確帶出這個資訊，要回頭確認「剪接台」介面本身有沒有正確記錄／匯出框的大小，不能憑感覺補一個尺寸上去。
+- **文字類的字級計算不能用「寬度÷字數」這種假設每個字等寬的公式**：中文字（CJK）大致方形、寬度≈字級沒錯，但英文字母窄很多，同樣公式套在英文字（例如「Claude」）上會嚴重低估該給的字級。正確做法是**真的用canvas量測出來的實際字寬**（`ctx.measureText()`）去反推能塞進框寬的字級（見`remotion-starter/fitText.ts`），不要用字數去估——中英文混排、任何語言都不用另外調參數。回饋「生成的太小」不代表答案是調高一個寫死的倍率蓋過去，要修對量測邏輯本身。
+
+## 共用元件（不要重新刻）
+
+- `remotion-starter/floatGlow.tsx`、`remotion-starter/FloatCard.tsx`、`remotion-starter/nativeMotion.ts`：[`07-懸浮光暈卡片視覺規範.md`](07-懸浮光暈卡片視覺規範.md) 定義的視覺跟動態語彙。
+- `remotion-starter/loadFonts.ts`：本機字型載入的樣板，新增其他自訂字型時複製這個模式。
+- `remotion-starter/fitText.ts`：文字實際量測、反推字級撐滿框寬的樣板，新的文字類素材直接沿用。
+- App／工具的官方icon（Photoshop、Premiere、Final Cut Pro、DaVinci Resolve等）**直接從使用者本機已安裝的App裡抓真實icon**（`sips -s format png "App.app/Contents/Resources/xxx.icns" --out xxx.png`），不要自己重畫／模仿這些商標圖案——前者是使用者自己電腦上的正版資產，後者有商標重製的疑慮。沒有特定商標歸屬的generic概念（例如emoji能表達的「炸彈」）可以直接用系統emoji字符當「對應的圖片」，不用另外找／畫素材。

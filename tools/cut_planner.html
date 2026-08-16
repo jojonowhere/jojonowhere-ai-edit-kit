@@ -1,0 +1,1332 @@
+<meta charset="utf-8">
+<title>剪接台</title>
+<style>
+  /* ---- Design tokens ----
+     Deliberately dark-only: this mirrors every real NLE (Premiere, Resolve,
+     Final Cut) — a dark ground is what lets you judge exposure/color in the
+     preview without the surrounding UI fighting the footage. Committing to
+     one visual world here, the same way a broadcast monitor doesn't get a
+     "light mode".
+     Track colors are semantic, not decorative: each layer in the timeline
+     keeps one hue so the eye can parse clip / emphasis-text / sticker rows
+     at a glance without reading labels.
+  */
+  :root {
+    --bg: #121319;
+    --panel: #1a1c25;
+    --panel-2: #21232e;
+    --panel-3: #282b38;
+    --border: #323544;
+    --border-soft: #2a2c38;
+    --text: #eceef4;
+    --text-dim: #9497a8;
+    --text-faint: #6c6f80;
+
+    --clip: #5b8def;
+    --clip-fill: rgba(91, 141, 239, 0.16);
+    --emph: #ffb020;
+    --emph-fill: rgba(255, 176, 32, 0.16);
+    --sticker: #ff4d8d;
+    --sticker-fill: rgba(255, 77, 141, 0.16);
+    --playhead: #4dd9c4;
+
+    --danger: #ff5a5a;
+    --radius: 7px;
+    font-size: 18px;
+  }
+
+  * { box-sizing: border-box; }
+
+  html { overflow-x: hidden; max-width: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+    -webkit-font-smoothing: antialiased;
+    min-height: 100vh;
+    max-width: 100vw;
+    overflow-x: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .mono {
+    font-family: ui-monospace, "SF Mono", "Menlo", monospace;
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum";
+  }
+
+  button {
+    font: inherit;
+    color: inherit;
+    background: var(--panel-3);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 7px 13px;
+    cursor: pointer;
+    transition: background 0.12s, border-color 0.12s;
+  }
+  button:hover { background: #323545; border-color: #454858; }
+  button:active { background: #2a2c38; }
+  button:focus-visible { outline: 2px solid var(--playhead); outline-offset: 1px; }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+  button.primary { background: var(--clip); border-color: var(--clip); color: #0b1220; font-weight: 600; }
+  button.primary:hover { background: #6f9bf1; }
+  button.ghost { background: transparent; }
+  button.danger-txt { color: var(--danger); }
+
+  input[type="text"], textarea, select {
+    font: inherit;
+    color: var(--text);
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 9px;
+    width: 100%;
+  }
+  input[type="text"]:focus, textarea:focus, select:focus {
+    outline: none; border-color: var(--playhead);
+  }
+  textarea { resize: vertical; min-height: 52px; }
+
+  input[type="range"] {
+    -webkit-appearance: none;
+    width: 100%;
+    height: 4px;
+    background: var(--border);
+    border-radius: 2px;
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 13px; height: 13px; border-radius: 50%;
+    background: var(--playhead);
+    cursor: pointer;
+    margin-top: -4.5px;
+  }
+
+  input[type="color"] {
+    -webkit-appearance: none;
+    width: 32px; height: 28px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 2px;
+    background: var(--panel-2);
+    cursor: pointer;
+  }
+  input[type="color"]::-webkit-color-swatch { border-radius: 4px; border: none; }
+
+  label.field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 12px; }
+  label.field > span.lbl {
+    font-size: 13.5px; text-transform: uppercase; letter-spacing: 0.06em;
+    color: var(--text-faint); font-weight: 600;
+  }
+
+  /* ---- Header ---- */
+  header {
+    display: flex; align-items: center; flex-wrap: wrap; gap: 10px 14px;
+    padding: 10px 16px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+    max-width: 100%;
+  }
+  header h1 {
+    font-size: 15px; font-weight: 700; margin: 0;
+    letter-spacing: 0.01em;
+    display: flex; align-items: center; gap: 8px;
+  }
+  header h1 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--playhead); }
+  .filename { font-size: 14.5px; color: var(--text-dim); overflow-wrap: anywhere; max-width: 100%; }
+  header .spacer { flex: 1; }
+  #fileInput { display: none; }
+
+  /* ---- Body layout ----
+     Stacked vertically, not a side-by-side desktop grid: this runs inside a
+     narrow, resizable host panel (not a full browser tab), so a fixed-width
+     side column reliably overflows sideways there. Everything is full-width
+     and stacks top-to-bottom; the page scrolls vertically instead. */
+  .body-grid {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+  }
+  .preview-pane {
+    width: 100%; max-width: 100%; min-width: 0;
+    height: 46vh; min-height: 180px; max-height: 82vh; flex-shrink: 0;
+    background: #08090c;
+    position: relative;
+    display: flex; flex-direction: column;
+  }
+  .vresize {
+    width: 100%; height: 14px; flex-shrink: 0;
+    background: var(--panel-2);
+    border-top: 1px solid var(--border-soft); border-bottom: 1px solid var(--border-soft);
+    cursor: ns-resize;
+    display: flex; align-items: center; justify-content: center;
+    touch-action: none;
+  }
+  .vresize-grip { width: 44px; height: 4px; border-radius: 2px; background: var(--panel-3); }
+  .vresize:hover .vresize-grip, .vresize.dragging .vresize-grip { background: var(--playhead); }
+  .timeline-pane {
+    width: 100%; max-width: 100%; min-width: 0;
+    flex: 1; min-height: 260px;
+    background: var(--panel);
+    display: flex; flex-direction: column;
+    border-top: 1px solid var(--border);
+  }
+  .side-pane {
+    width: 100%; max-width: 100%; min-width: 0;
+    flex-shrink: 0;
+    background: var(--panel);
+    padding: 16px;
+    border-top: 1px solid var(--border);
+    box-sizing: border-box;
+  }
+
+  /* ---- Preview ---- */
+  .stage {
+    width: 100%; max-width: 100%;
+    flex: 1; min-height: 0;
+    display: flex; align-items: center; justify-content: center;
+    position: relative;
+    background:
+      linear-gradient(45deg, #0d0e12 25%, transparent 25%) -10px 0/20px 20px,
+      linear-gradient(-45deg, #0d0e12 25%, transparent 25%) -10px 0/20px 20px,
+      #0a0b0e;
+    overflow: hidden;
+  }
+  .stage video { max-width: 100%; max-height: 100%; width: auto; height: auto; display: block; background: #000; object-fit: contain; }
+  #videoCanvas { max-width: 100%; max-height: 100%; background: #000; }
+  .empty-state {
+    color: var(--text-faint); text-align: center; font-size: 13.5px; line-height: 1.7;
+    max-width: 260px;
+  }
+  .empty-state .big { font-size: 34px; margin-bottom: 10px; opacity: 0.6; }
+
+  .overlay-layer {
+    position: absolute; inset: 0; pointer-events: none;
+  }
+  .overlay-item {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    pointer-events: auto;
+    cursor: grab;
+    touch-action: none;
+    user-select: none;
+    /* white-space: pre-wrap so a manual line break in the text field shows
+       as an actual line break here too, and long lines wrap inside the box
+       instead of overflowing it. Box width/height are set inline per-item
+       (independent of font size or text length) — this is a fixed frame
+       you drag to size, not a label that grows to fit its content; it's
+       meant to work as a placement/scope marker ("something goes here"),
+       not necessarily the literal final on-screen text. */
+    white-space: pre-wrap;
+    overflow: hidden;
+    word-break: break-word;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    box-sizing: border-box;
+    border: 1.5px dashed rgba(255,255,255,0.22);
+    border-radius: 4px;
+    padding: 2px 6px;
+  }
+  .overlay-item:active { cursor: grabbing; }
+  .overlay-item:hover, .overlay-item.selected { border-color: rgba(255,255,255,0.5); }
+  .ov-resize {
+    position: absolute; right: -11px; bottom: -11px;
+    width: 20px; height: 20px; border-radius: 50%;
+    background: var(--playhead); border: 2px solid #0b1220;
+    cursor: nwse-resize;
+    touch-action: none;
+    opacity: 0; transition: opacity 0.12s;
+  }
+  .overlay-item:hover .ov-resize, .overlay-item.selected .ov-resize { opacity: 1; }
+  .overlay-item.emphasis-item { font-weight: 800; text-shadow: 0 2px 10px rgba(0,0,0,0.6); }
+  .overlay-item.sticker-item {
+    background: rgba(20,21,27,0.72);
+    backdrop-filter: blur(6px);
+    border-color: rgba(255,255,255,0.14) !important;
+    font-size: 15px; font-weight: 600;
+    padding: 6px 12px;
+  }
+  .overlay-item.logo-item {
+    background: transparent; border-style: solid; padding: 0;
+    flex-direction: column; gap: 4px;
+  }
+  .overlay-item.logo-item img {
+    max-width: 100%; max-height: 100%; width: 100%; height: 100%;
+    object-fit: contain; pointer-events: none;
+    filter: drop-shadow(0 10px 22px rgba(0,0,0,0.45));
+  }
+  .overlay-item.logo-item .logo-caption {
+    font-size: 13px; font-weight: 600; color: #fff;
+    text-shadow: 0 2px 6px rgba(0,0,0,0.6);
+    flex-shrink: 0;
+  }
+  /* Placeholder "floating 3D window" treatment: a soft bob + slight tilt
+     plus a glow so a flat logo/text reads as if it's hovering in front of
+     the frame. This is a live-preview approximation for placement/scope
+     purposes, not a final compositing-grade render. */
+  .overlay-layer { perspective: 900px; }
+  .overlay-item.fx-float {
+    animation: ov-float 3.4s ease-in-out infinite;
+  }
+  .overlay-item.fx-float.logo-item img {
+    filter: drop-shadow(0 14px 26px rgba(0,0,0,0.5)) drop-shadow(0 0 20px rgba(255,255,255,0.35));
+  }
+  .overlay-item.fx-float.emphasis-item {
+    text-shadow: 0 2px 10px rgba(0,0,0,0.6), 0 0 18px rgba(255,255,255,0.35);
+  }
+  @keyframes ov-float {
+    0%, 100% { transform: translate(-50%, -50%) translateY(0) rotateX(0deg) rotateY(0deg); }
+    50% { transform: translate(-50%, -50%) translateY(-6%) rotateX(6deg) rotateY(-4deg); }
+  }
+
+  .transport {
+    flex-shrink: 0;
+    display: flex; align-items: center; gap: 10px;
+    padding: 9px 14px;
+    background: var(--panel-2);
+    border-top: 1px solid var(--border);
+  }
+  .transport .time { font-size: 15px; color: var(--text-dim); min-width: 118px; }
+  .transport .time b { color: var(--text); }
+  #scrubber { flex: 1; }
+  .playbtn {
+    width: 30px; height: 30px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    padding: 0; font-size: 13px;
+  }
+
+  /* ---- Timeline ---- */
+  .tl-toolbar {
+    flex-shrink: 0;
+    display: flex; align-items: center; flex-wrap: wrap; gap: 8px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border-soft);
+    max-width: 100%;
+  }
+  .tl-toolbar .sep { width: 1px; height: 18px; background: var(--border); margin: 0 2px; }
+  .tl-toolbar .zoom { display: flex; align-items: center; gap: 6px; margin-left: auto; }
+  .tl-toolbar .zoom span { font-size: 13px; color: var(--text-faint); }
+  .tl-toolbar .zoom input { width: 90px; }
+
+  .tl-scroll { flex: 1; min-height: 200px; overflow-x: auto; overflow-y: hidden; position: relative; max-width: 100%; }
+  .tl-inner { position: relative; height: 100%; min-width: 100%; display: flex; flex-direction: column; }
+
+  .tl-ruler {
+    height: 22px; flex-shrink: 0; position: relative; cursor: pointer;
+    background: var(--panel-2);
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .tl-tick {
+    position: absolute; top: 0; bottom: 0;
+    border-left: 1px solid var(--border);
+    font-size: 12px; color: var(--text-faint);
+    padding-left: 4px; padding-top: 4px;
+  }
+
+  .tl-track { position: relative; flex: 1; min-height: 78px; border-bottom: 1px solid var(--border-soft); }
+  .tl-track-label {
+    position: sticky; left: 0; top: 0; z-index: 3;
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 13px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+    color: var(--text-faint);
+    background: var(--panel);
+    padding: 3px 8px 3px 4px;
+    border-radius: 0 4px 4px 0;
+    pointer-events: none;
+  }
+  .tl-track-label .sw { width: 7px; height: 7px; border-radius: 2px; }
+
+  .tl-block {
+    position: absolute; top: 50%; transform: translateY(-50%); height: 64%; max-height: 84px; min-height: 40px;
+    border-radius: 6px;
+    border: 1.5px solid transparent;
+    cursor: grab;
+    touch-action: none;
+    display: flex; align-items: center;
+    font-size: 15px; font-weight: 600;
+    padding: 0 10px;
+    overflow: hidden; white-space: nowrap;
+    min-width: 6px;
+  }
+  .tl-block:active { cursor: grabbing; }
+  .tl-block.clip-block { background: var(--clip-fill); border-color: var(--clip); color: #cfe0ff; }
+  .tl-block.emph-block { background: var(--emph-fill); border-color: var(--emph); color: #ffe1a8; }
+  .tl-block.sticker-block { background: var(--sticker-fill); border-color: var(--sticker); color: #ffc3da; }
+  .tl-block.selected { box-shadow: 0 0 0 2px var(--playhead); }
+  .tl-block .handle {
+    position: absolute; top: 0; bottom: 0; width: 16px; cursor: ew-resize;
+    touch-action: none;
+    display: flex; align-items: center; justify-content: center;
+  }
+  body.dragging-x, body.dragging-x .tl-block { cursor: ew-resize !important; }
+  .tl-block .handle::after {
+    content: ""; width: 3px; height: 40%; border-radius: 2px;
+    background: rgba(255,255,255,0.55);
+  }
+  .tl-block .handle:hover::after { background: #fff; }
+  .tl-block .handle.l { left: 0; } .tl-block .handle.r { right: 0; }
+
+  .tl-playhead {
+    position: absolute; top: 0; bottom: 0; width: 1px;
+    background: var(--playhead); z-index: 5; pointer-events: none;
+  }
+  .tl-playhead::before {
+    content: ""; position: absolute; top: 0; left: -4.5px;
+    border-left: 5px solid transparent; border-right: 5px solid transparent;
+    border-top: 6px solid var(--playhead);
+  }
+
+  /* ---- Side panel ---- */
+  .side-pane h2 {
+    font-size: 13.5px; text-transform: uppercase; letter-spacing: 0.06em;
+    color: var(--text-faint); margin: 0 0 14px;
+    display: flex; align-items: center; gap: 7px;
+  }
+  .side-pane h2 .sw { width: 8px; height: 8px; border-radius: 2px; }
+  .panel-empty { color: var(--text-faint); font-size: 15px; line-height: 1.7; }
+  .pos-grid {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px;
+  }
+  .pos-grid button { padding: 8px 0; font-size: 15px; }
+  .pos-grid button.active { border-color: var(--playhead); background: var(--panel-3); }
+  .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .btnrow { display: flex; gap: 8px; margin-top: 16px; }
+  .btnrow button { flex: 1; }
+  .hint { font-size: 13.5px; color: var(--text-faint); line-height: 1.6; margin-top: -4px; margin-bottom: 14px; }
+  .logo-thumb-row { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+  .logo-thumb { width: 52px; height: 52px; object-fit: contain; background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; padding: 4px; flex-shrink: 0; }
+  .logo-thumb-info { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+  .logo-thumb-name { font-size: 13px; color: var(--text-dim); overflow-wrap: anywhere; }
+
+  .modal-backdrop {
+    position: fixed; inset: 0; z-index: 50;
+    background: rgba(8,9,12,0.72);
+    display: flex; align-items: center; justify-content: center;
+    padding: 24px;
+  }
+  .modal-panel {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+    padding: 18px; width: min(560px, 100%); max-height: 86vh;
+    display: flex; flex-direction: column;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+  }
+  .modal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+  .modal-head h2 { font-size: 15px; margin: 0; }
+  #exportTextarea {
+    flex: 1; min-height: 260px; resize: vertical;
+    font-size: 12.5px; line-height: 1.5;
+  }
+
+  ::-webkit-scrollbar { height: 10px; width: 10px; }
+  ::-webkit-scrollbar-thumb { background: var(--panel-3); border-radius: 6px; border: 2px solid var(--panel); }
+  ::-webkit-scrollbar-track { background: transparent; }
+</style>
+
+<header>
+  <h1><span class="dot"></span>剪接台</h1>
+  <span class="filename" id="filenameLabel">尚未載入影片</span>
+  <div class="spacer"></div>
+  <button id="loadBtn">載入影片…</button>
+  <button id="exportBtn" class="primary" disabled>匯出剪輯計畫</button>
+  <input type="file" id="fileInput" accept="video/*">
+</header>
+
+<div class="modal-backdrop" id="exportModal" style="display:none">
+  <div class="modal-panel">
+    <div class="modal-head">
+      <h2>剪輯計畫（JSON）</h2>
+      <button id="exportCloseBtn" class="ghost">✕</button>
+    </div>
+    <div class="hint" style="margin-bottom:10px;">
+      這個環境的下載功能被瀏覽器沙盒擋住了，直接下載檔案沒有反應是正常的 — 全選下面的文字複製貼給我就可以。
+    </div>
+    <textarea id="exportTextarea" class="mono" readonly></textarea>
+    <div class="btnrow">
+      <button id="exportCopyBtn" class="primary">複製到剪貼簿</button>
+      <button id="exportCloseBtn2" class="ghost">關閉</button>
+    </div>
+    <div id="exportCopyStatus" class="hint" style="margin-top:8px; margin-bottom:0; min-height:1.6em;"></div>
+  </div>
+</div>
+
+<div class="body-grid">
+  <div class="preview-pane">
+    <div class="stage" id="stage">
+      <div class="empty-state" id="emptyState">
+        <div class="big">▭</div>
+        載入你剪好的影片檔案，<br>就可以在這裡微調剪點、<br>加強調字跟貼紙效果。
+      </div>
+      <video id="video" playsinline style="position:absolute; inset:0; width:100%; height:100%; opacity:0.01; pointer-events:none;"></video>
+      <canvas id="videoCanvas" style="display:none"></canvas>
+      <div class="overlay-layer" id="overlayLayer"></div>
+    </div>
+    <div class="transport">
+      <button class="playbtn" id="playBtn" disabled>▶</button>
+      <input type="range" id="scrubber" min="0" max="1000" value="0" step="1" disabled>
+      <div class="time mono" id="timeLabel"><b>00:00.0</b> / 00:00.0</div>
+    </div>
+  </div>
+
+  <div class="vresize" id="vResize" title="拖曳調整預覽區／時間軸區的比例">
+    <div class="vresize-grip"></div>
+  </div>
+
+  <div class="timeline-pane">
+    <div class="tl-toolbar">
+      <button id="splitBtn" disabled>✂ 在播放點分割</button>
+      <div class="sep"></div>
+      <button id="addEmphBtn" disabled>+ 強調字</button>
+      <button id="addStickerBtn" disabled>+ 貼紙／圖卡</button>
+      <button id="addLogoBtn" disabled>+ 上傳Logo</button>
+      <input type="file" id="logoInput" accept="image/*" style="display:none">
+      <div class="sep"></div>
+      <button id="deleteBtn" class="danger-txt" disabled>刪除選取項目</button>
+      <div class="sep"></div>
+      <button id="undoBtn" disabled title="復原上一步">↶ 復原</button>
+      <div class="zoom">
+        <span>縮放</span>
+        <input type="range" id="zoomSlider" min="20" max="220" value="80">
+      </div>
+    </div>
+    <div class="tl-scroll" id="tlScroll">
+      <div class="tl-inner" id="tlInner">
+        <div class="tl-ruler" id="tlRuler"></div>
+        <div class="tl-track" id="trackClips">
+          <span class="tl-track-label"><span class="sw" style="background:var(--clip)"></span>片段</span>
+        </div>
+        <div class="tl-track" id="trackEmph">
+          <span class="tl-track-label"><span class="sw" style="background:var(--emph)"></span>強調字</span>
+        </div>
+        <div class="tl-track" id="trackSticker">
+          <span class="tl-track-label"><span class="sw" style="background:var(--sticker)"></span>貼紙／圖卡</span>
+        </div>
+        <div class="tl-playhead" id="tlPlayhead" style="left:0"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="side-pane" id="sidePane">
+    <div class="panel-empty">
+      點選時間軸上的片段／強調字／貼紙，可以在這裡編輯內容跟樣式。
+    </div>
+  </div>
+</div>
+
+<script>
+const EMBEDDED_PREVIEW = "";
+(function () {
+  "use strict";
+
+  const $ = (id) => document.getElementById(id);
+  const video = $("video"), stage = $("stage"), emptyState = $("emptyState");
+  const canvas = $("videoCanvas");
+  const canvasCtx = canvas.getContext("2d");
+  const overlayLayer = $("overlayLayer");
+  const playBtn = $("playBtn"), scrubber = $("scrubber"), timeLabel = $("timeLabel");
+  const tlScroll = $("tlScroll"), tlInner = $("tlInner"), tlRuler = $("tlRuler");
+  const trackClips = $("trackClips"), trackEmph = $("trackEmph"), trackSticker = $("trackSticker");
+  const tlPlayhead = $("tlPlayhead");
+  const sidePane = $("sidePane");
+  const zoomSlider = $("zoomSlider");
+  const filenameLabel = $("filenameLabel");
+  const previewPane = document.querySelector(".preview-pane");
+  const vResize = $("vResize");
+
+  let pxPerSec = 80;
+  let duration = 0;
+  let uid = 1;
+
+  const state = {
+    fileName: null,
+    clips: [],      // {id, start, end}
+    emphasis: [],    // {id, start, end, text, size, color, pos:{x,y}}
+    stickers: [],    // {id, start, end, text, color, pos:{x,y}}
+    selected: null,  // {type, id}
+  };
+
+  // ---------- Undo ----------
+  const historyStack = [];
+  function snapshotState() {
+    return {
+      clips: JSON.parse(JSON.stringify(state.clips)),
+      emphasis: JSON.parse(JSON.stringify(state.emphasis)),
+      stickers: JSON.parse(JSON.stringify(state.stickers)),
+      selected: state.selected ? { ...state.selected } : null,
+    };
+  }
+  function pushHistory() {
+    historyStack.push(snapshotState());
+    if (historyStack.length > 50) historyStack.shift();
+    $("undoBtn").disabled = false;
+  }
+  function undo() {
+    const prev = historyStack.pop();
+    if (!prev) return;
+    state.clips = prev.clips;
+    state.emphasis = prev.emphasis;
+    state.stickers = prev.stickers;
+    state.selected = prev.selected;
+    $("undoBtn").disabled = historyStack.length === 0;
+    renderAll();
+  }
+
+  function newId() { return uid++; }
+  function fmtTime(t) {
+    const m = Math.floor(t / 60);
+    const s = (t - m * 60).toFixed(1).padStart(4, "0");
+    return `${String(m).padStart(2, "0")}:${s}`;
+  }
+  function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+  // ---------- Preview / timeline vertical split resize ----------
+  vResize.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    vResize.classList.add("dragging");
+    try { vResize.setPointerCapture(e.pointerId); } catch (err) { /* fall back to plain listeners */ }
+    const pointerId = e.pointerId;
+    const startY = e.clientY;
+    const startH = previewPane.getBoundingClientRect().height;
+    const maxH = window.innerHeight * 0.82;
+    function onMove(ev) {
+      if (ev.pointerId !== pointerId) return;
+      const h = clamp(startH + (ev.clientY - startY), 140, maxH);
+      previewPane.style.height = h + "px";
+    }
+    function onUp(ev) {
+      if (ev.pointerId !== pointerId) return;
+      vResize.classList.remove("dragging");
+      try { vResize.releasePointerCapture(pointerId); } catch (err) { /* was never captured */ }
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+    }
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+  });
+
+  // ---------- Canvas draw loop ----------
+  // Some embedded/sandboxed contexts fail to paint a native <video> element
+  // (audio still plays) but always paint <canvas> correctly, so the video
+  // stays invisible (opacity:0) and we manually blit its current frame onto
+  // a canvas instead of relying on the browser's normal video compositing.
+  // requestAnimationFrame is paused in backgrounded/unfocused tabs/iframes,
+  // so it's only used as a smoothness bonus — the real triggers are video
+  // events, which keep firing regardless of tab/iframe focus state.
+  function drawFrame() {
+    if (canvas.width > 0 && video.readyState >= 2) {
+      canvasCtx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    }
+  }
+  video.addEventListener("timeupdate", drawFrame);
+  video.addEventListener("seeked", drawFrame);
+  video.addEventListener("loadeddata", drawFrame);
+  video.addEventListener("play", drawFrame);
+  setInterval(drawFrame, 200);
+  (function rafLoop() {
+    drawFrame();
+    requestAnimationFrame(rafLoop);
+  })();
+
+  // ---------- File loading ----------
+  function loadVideoSrc(url, name) {
+    video.src = url;
+    canvas.style.display = "block";
+    emptyState.style.display = "none";
+    filenameLabel.textContent = name;
+    state.fileName = name;
+    video.onloadedmetadata = () => {
+      duration = video.duration;
+      canvas.width = video.videoWidth || 1080;
+      canvas.height = video.videoHeight || 1920;
+      state.clips = [{ id: newId(), start: 0, end: duration }];
+      scrubber.disabled = false;
+      playBtn.disabled = false;
+      $("splitBtn").disabled = false;
+      $("addEmphBtn").disabled = false;
+      $("addStickerBtn").disabled = false;
+      $("addLogoBtn").disabled = false;
+      $("exportBtn").disabled = false;
+      renderAll();
+    };
+  }
+
+  $("loadBtn").addEventListener("click", () => $("fileInput").click());
+  $("fileInput").addEventListener("change", (e) => {
+    const f = e.target.files[0];
+    if (!f) return;
+    loadVideoSrc(URL.createObjectURL(f), f.name);
+  });
+
+  // ---------- Auto-load the current rough cut on open ----------
+  if (typeof EMBEDDED_PREVIEW === "string" && EMBEDDED_PREVIEW.length > 0) {
+    loadVideoSrc(EMBEDDED_PREVIEW, "reels_final_composited.mp4（含Claude/蘋果懸浮卡片+片段裁切的完整預覽，已內嵌，畫質為預覽用途，正式輸出仍用原始素材與正式算圖檔）");
+  }
+
+  // ---------- Edited-sequence playback mapping ----------
+  // The preview plays the single loaded video verbatim; state.clips is just
+  // an edit-decision-list layered on top of it. Without this mapping, the
+  // transport would show/scrub raw source time while the clip blocks (and
+  // any trims/splits/deletes made to them) never affect what's actually
+  // played back — clip edits would look like they "do nothing" in preview.
+  // These functions translate between raw source time and the edited
+  // ("virtual") timeline so playback skips trimmed-out gaps and the
+  // transport reflects the edited duration, not the raw file's duration.
+  function orderedClips() {
+    return [...state.clips].sort((a, b) => a.start - b.start);
+  }
+  function virtualDuration() {
+    return orderedClips().reduce((sum, c) => sum + (c.end - c.start), 0);
+  }
+  function realToVirtual(rt) {
+    let acc = 0;
+    for (const c of orderedClips()) {
+      if (rt < c.start) return acc;
+      if (rt <= c.end) return acc + (rt - c.start);
+      acc += (c.end - c.start);
+    }
+    return acc;
+  }
+  function virtualToReal(vt) {
+    let acc = 0;
+    const clips = orderedClips();
+    for (const c of clips) {
+      const len = c.end - c.start;
+      if (vt <= acc + len) return c.start + (vt - acc);
+      acc += len;
+    }
+    const last = clips[clips.length - 1];
+    return last ? last.end : 0;
+  }
+  function clipAtRealTime(rt) {
+    return orderedClips().find((c) => rt >= c.start - 0.001 && rt < c.end - 0.001) || null;
+  }
+  function nextClipAfter(rt) {
+    return orderedClips().find((c) => c.start > rt - 0.001) || null;
+  }
+  function refreshTransport() {
+    const vdur = virtualDuration();
+    if (!vdur) return;
+    const vt = realToVirtual(video.currentTime);
+    scrubber.value = (vt / vdur) * 1000;
+    timeLabel.innerHTML = `<b>${fmtTime(vt)}</b> / ${fmtTime(vdur)}`;
+  }
+
+  // ---------- Transport ----------
+  playBtn.addEventListener("click", () => {
+    if (video.paused) { video.play(); } else { video.pause(); }
+  });
+  video.addEventListener("play", () => playBtn.textContent = "❚❚");
+  video.addEventListener("pause", () => playBtn.textContent = "▶");
+
+  scrubber.addEventListener("input", () => {
+    const vt = (scrubber.value / 1000) * virtualDuration();
+    video.currentTime = virtualToReal(vt);
+  });
+
+  function onPlaybackTick() {
+    if (!duration) return;
+    // If playback has run past the current clip's out-point (or drifted
+    // into a trimmed-out gap) while playing, jump straight to the next
+    // clip's in-point instead of continuing to play the trimmed footage —
+    // this is the actual fix: previously nothing enforced clip boundaries
+    // during playback, so edits never showed up in preview.
+    if (!video.paused && !video.seeking) {
+      const cur = clipAtRealTime(video.currentTime);
+      if (!cur) {
+        const nxt = nextClipAfter(video.currentTime);
+        if (nxt) { video.currentTime = nxt.start; }
+        else { video.pause(); }
+      }
+    }
+    refreshTransport();
+    updatePlayheadPx();
+    updateOverlays();
+  }
+  // Same defensive pattern as the canvas draw loop below: 'timeupdate'
+  // alone doesn't reliably fire for a paused/programmatic seek in this
+  // embedded panel, so 'seeked' plus a polling fallback keep the transport
+  // label and playhead honest even when the browser skips an event.
+  video.addEventListener("timeupdate", onPlaybackTick);
+  video.addEventListener("seeked", onPlaybackTick);
+  setInterval(onPlaybackTick, 200);
+
+  function seekTo(t) {
+    video.currentTime = clamp(t, 0, duration);
+  }
+
+  // ---------- Timeline geometry ----------
+  zoomSlider.addEventListener("input", () => {
+    pxPerSec = Number(zoomSlider.value);
+    renderAll();
+  });
+
+  function timelineWidth() { return Math.max(600, duration * pxPerSec + 40); }
+
+  function renderRuler() {
+    tlRuler.innerHTML = "";
+    tlRuler.style.width = timelineWidth() + "px";
+    if (!duration) return;
+    let step = 5;
+    if (pxPerSec > 150) step = 1;
+    else if (pxPerSec > 80) step = 2;
+    else if (pxPerSec < 40) step = 10;
+    for (let t = 0; t <= duration; t += step) {
+      const tick = document.createElement("div");
+      tick.className = "tl-tick";
+      tick.style.left = (t * pxPerSec) + "px";
+      tick.textContent = fmtTime(t).slice(0, 5);
+      tlRuler.appendChild(tick);
+    }
+  }
+
+  tlRuler.addEventListener("click", (e) => {
+    const rect = tlRuler.getBoundingClientRect();
+    const t = (e.clientX - rect.left) / pxPerSec;
+    seekTo(t);
+  });
+
+  function updatePlayheadPx() {
+    tlPlayhead.style.left = (video.currentTime * pxPerSec) + "px";
+  }
+
+  // ---------- Rendering blocks ----------
+  function renderAll() {
+    tlInner.style.width = timelineWidth() + "px";
+    renderRuler();
+    renderTrack(trackClips, state.clips, "clip-block", (item) => `${fmtTime(item.start)}–${fmtTime(item.end)}`);
+    renderTrack(trackEmph, state.emphasis, "emph-block", (item) => item.text || "（空白）");
+    renderTrack(trackSticker, state.stickers, "sticker-block", (item) => item.text || "貼紙");
+    updatePlayheadPx();
+    renderOverlayElements();
+    updateOverlays();
+    renderSidePanel();
+    refreshTransport();
+  }
+
+  function renderTrack(trackEl, items, cls, labelFn) {
+    trackEl.querySelectorAll(".tl-block").forEach((n) => n.remove());
+    items.forEach((item) => {
+      const block = document.createElement("div");
+      block.className = "tl-block " + cls;
+      const type = cls.startsWith("clip") ? "clip" : cls.startsWith("emph") ? "emphasis" : "sticker";
+      if (state.selected && state.selected.type === type && state.selected.id === item.id) {
+        block.classList.add("selected");
+      }
+      block.style.left = (item.start * pxPerSec) + "px";
+      block.style.width = Math.max(6, (item.end - item.start) * pxPerSec) + "px";
+      block.textContent = labelFn(item);
+
+      const lh = document.createElement("div"); lh.className = "handle l";
+      const rh = document.createElement("div"); rh.className = "handle r";
+      block.appendChild(lh); block.appendChild(rh);
+
+      block.addEventListener("pointerdown", (e) => startBlockDrag(e, type, item, block, lh, rh));
+      block.addEventListener("click", (e) => { e.stopPropagation(); select(type, item.id); });
+      trackEl.appendChild(block);
+    });
+  }
+
+  function startBlockDrag(e, type, item, block, lh, rh) {
+    e.preventDefault();
+    e.stopPropagation();
+    const startX = e.clientX;
+    const origStart = item.start, origEnd = item.end;
+    const mode = (e.target === lh) ? "left" : (e.target === rh) ? "right" : "move";
+    const id = item.id;
+
+    // The clip track is single-track but not required to stay contiguous:
+    // clips may be dragged apart to leave a gap (skipped during playback,
+    // see the edited-sequence mapping above), they just can't be dragged
+    // into overlapping a neighbor since only one clip can occupy a given
+    // moment. So neighbors are found once up front purely as drag bounds —
+    // unlike a roll-edit, the neighbor itself is never modified.
+    let prevNeighbor = null, nextNeighbor = null;
+    if (type === "clip") {
+      const ordered = orderedClips();
+      const idx = ordered.findIndex((c) => c.id === item.id);
+      if (idx > 0) prevNeighbor = ordered[idx - 1];
+      if (idx >= 0 && idx < ordered.length - 1) nextNeighbor = ordered[idx + 1];
+    }
+
+    pushHistory();
+    const pointerId = e.pointerId;
+    try { block.setPointerCapture(pointerId); } catch (err) { /* fall back to plain listeners */ }
+    document.body.classList.add("dragging-x");
+
+    // Listen on window, not `block`: renderAll() below replaces the block
+    // element on every move (rebuilding the timeline DOM), which would
+    // silently drop a listener attached to the old node after the first
+    // move. window is stable across re-renders; pointer capture still
+    // routes events here correctly even if the cursor leaves the element.
+    function onMove(ev) {
+      if (ev.pointerId !== pointerId) return;
+      const dx = (ev.clientX - startX) / pxPerSec;
+      if (mode === "left") {
+        const lo = prevNeighbor ? prevNeighbor.end : 0;
+        item.start = clamp(origStart + dx, lo, item.end - 0.1);
+      } else if (mode === "right") {
+        const hi = nextNeighbor ? nextNeighbor.start : duration;
+        item.end = clamp(origEnd + dx, item.start + 0.1, hi);
+      } else {
+        const len = origEnd - origStart;
+        const lo = prevNeighbor ? prevNeighbor.end : 0;
+        const hi = nextNeighbor ? nextNeighbor.start - len : duration - len;
+        let ns = clamp(origStart + dx, lo, hi);
+        item.start = ns; item.end = ns + len;
+      }
+      renderAll();
+    }
+    function onUp(ev) {
+      if (ev.pointerId !== pointerId) return;
+      try { block.releasePointerCapture(pointerId); } catch (err) { /* was never captured */ }
+      document.body.classList.remove("dragging-x");
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+    }
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+    select(type, id);
+  }
+
+  // ---------- Overlay preview on video ----------
+  // Box width/height (fractions of the stage) are a separate property from
+  // font size and from the text itself — the box is a placement/scope
+  // frame ("something goes here"), not a label auto-sized to fit its
+  // content, so it only changes when dragged via the corner grip.
+  const DEFAULT_EMPH_W = 0.5, DEFAULT_EMPH_H = 0.16;
+  const DEFAULT_STICKER_W = 0.32, DEFAULT_STICKER_H = 0.1;
+  const DEFAULT_LOGO_W = 0.28, DEFAULT_LOGO_H = 0.14;
+  function renderOverlayElements() {
+    overlayLayer.innerHTML = "";
+    state.emphasis.forEach((it) => {
+      const el = document.createElement("div");
+      el.className = "overlay-item emphasis-item" + (it.effect === "float" ? " fx-float" : "");
+      el.dataset.type = "emphasis"; el.dataset.id = it.id;
+      el.style.left = (it.pos.x * 100) + "%";
+      el.style.top = (it.pos.y * 100) + "%";
+      el.style.width = ((it.w ?? DEFAULT_EMPH_W) * 100) + "%";
+      el.style.height = ((it.h ?? DEFAULT_EMPH_H) * 100) + "%";
+      el.style.fontSize = it.size + "px";
+      el.style.color = it.color;
+      el.textContent = it.text || "強調字";
+      attachOverlayDrag(el, it);
+      attachOverlayResize(el, it);
+      overlayLayer.appendChild(el);
+    });
+    state.stickers.forEach((it) => {
+      const el = document.createElement("div");
+      const isLogo = !!it.image;
+      el.className = "overlay-item sticker-item" + (isLogo ? " logo-item" : "") + (it.effect === "float" ? " fx-float" : "");
+      el.dataset.type = "sticker"; el.dataset.id = it.id;
+      el.style.left = (it.pos.x * 100) + "%";
+      el.style.top = (it.pos.y * 100) + "%";
+      el.style.width = ((it.w ?? (isLogo ? DEFAULT_LOGO_W : DEFAULT_STICKER_W)) * 100) + "%";
+      el.style.height = ((it.h ?? (isLogo ? DEFAULT_LOGO_H : DEFAULT_STICKER_H)) * 100) + "%";
+      el.style.fontSize = (it.size || 20) + "px";
+      el.style.color = it.color;
+      if (isLogo) {
+        const img = document.createElement("img");
+        img.src = it.image;
+        img.draggable = false;
+        img.alt = it.imageName || "logo";
+        el.appendChild(img);
+        if (it.text) {
+          const cap = document.createElement("div");
+          cap.className = "logo-caption";
+          cap.textContent = it.text;
+          el.appendChild(cap);
+        }
+      } else {
+        el.textContent = it.text || "🔥 貼紙";
+      }
+      attachOverlayDrag(el, it);
+      attachOverlayResize(el, it);
+      overlayLayer.appendChild(el);
+    });
+  }
+
+  function attachOverlayDrag(el, it) {
+    el.addEventListener("pointerdown", (e) => {
+      if (e.target.closest(".ov-resize")) return;
+      e.preventDefault();
+      pushHistory();
+      const type = el.dataset.type;
+      const id = it.id;
+      const rect = stage.getBoundingClientRect();
+      const pointerId = e.pointerId;
+      try { el.setPointerCapture(pointerId); } catch (err) { /* fall back to plain listeners */ }
+      // Listen on window (not `el`): a re-render can replace `el` mid-drag
+      // (e.g. select() below rebuilds the overlay layer), which would
+      // silently drop any listener attached to the old node. window is
+      // stable across renders, and pointer capture still redirects events
+      // here correctly even if the cursor leaves the element/iframe.
+      function onMove(ev) {
+        if (ev.pointerId !== pointerId) return;
+        const x = clamp((ev.clientX - rect.left) / rect.width, 0.02, 0.98);
+        const y = clamp((ev.clientY - rect.top) / rect.height, 0.02, 0.98);
+        it.pos.x = x; it.pos.y = y;
+        const live = overlayLayer.querySelector(`.overlay-item[data-type="${type}"][data-id="${id}"]`);
+        if (live) { live.style.left = (x * 100) + "%"; live.style.top = (y * 100) + "%"; }
+      }
+      function onUp(ev) {
+        if (ev.pointerId !== pointerId) return;
+        try { el.releasePointerCapture(pointerId); } catch (err) { /* was never captured */ }
+        window.removeEventListener("pointermove", onMove);
+        window.removeEventListener("pointerup", onUp);
+        window.removeEventListener("pointercancel", onUp);
+      }
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerup", onUp);
+      window.addEventListener("pointercancel", onUp);
+      select(type, id);
+    });
+  }
+
+  // Drag a corner grip to resize the placement BOX (width/height), not the
+  // font — text size is a separate control (side-panel slider) so a big
+  // box can hold small text and vice versa; the box never resizes itself
+  // to fit whatever text is typed into it.
+  function attachOverlayResize(el, it) {
+    const grip = document.createElement("div");
+    grip.className = "ov-resize";
+    el.appendChild(grip);
+    grip.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      pushHistory();
+      const type = el.dataset.type;
+      const id = it.id;
+      const rect = stage.getBoundingClientRect();
+      const startX = e.clientX, startY = e.clientY;
+      const defaultW = type === "emphasis" ? DEFAULT_EMPH_W : (it.image ? DEFAULT_LOGO_W : DEFAULT_STICKER_W);
+      const defaultH = type === "emphasis" ? DEFAULT_EMPH_H : (it.image ? DEFAULT_LOGO_H : DEFAULT_STICKER_H);
+      const startW = it.w ?? defaultW, startH = it.h ?? defaultH;
+      const pointerId = e.pointerId;
+      try { grip.setPointerCapture(pointerId); } catch (err) { /* fall back to plain listeners */ }
+      function onMove(ev) {
+        if (ev.pointerId !== pointerId) return;
+        // The box is centered on pos.x/y (translate(-50%,-50%)), so growing
+        // it by the grip's drag distance on one corner grows both edges —
+        // double the fractional delta so the corner tracks the cursor.
+        const dxFrac = (ev.clientX - startX) / rect.width;
+        const dyFrac = (ev.clientY - startY) / rect.height;
+        it.w = clamp(startW + dxFrac * 2, 0.04, 0.96);
+        it.h = clamp(startH + dyFrac * 2, 0.03, 0.9);
+        const live = overlayLayer.querySelector(`.overlay-item[data-type="${type}"][data-id="${id}"]`);
+        if (live) { live.style.width = (it.w * 100) + "%"; live.style.height = (it.h * 100) + "%"; }
+      }
+      function onUp(ev) {
+        if (ev.pointerId !== pointerId) return;
+        try { grip.releasePointerCapture(pointerId); } catch (err) { /* was never captured */ }
+        window.removeEventListener("pointermove", onMove);
+        window.removeEventListener("pointerup", onUp);
+        window.removeEventListener("pointercancel", onUp);
+      }
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerup", onUp);
+      window.addEventListener("pointercancel", onUp);
+      select(type, id);
+    });
+  }
+
+  function updateOverlays() {
+    const t = video.currentTime;
+    overlayLayer.querySelectorAll(".overlay-item").forEach((el) => {
+      const type = el.dataset.type;
+      const id = Number(el.dataset.id);
+      const list = type === "emphasis" ? state.emphasis : state.stickers;
+      const it = list.find((x) => x.id === id);
+      const active = it && t >= it.start && t <= it.end;
+      el.style.display = active ? "block" : "none";
+      el.classList.toggle("selected", !!(state.selected && state.selected.type === type && state.selected.id === id));
+    });
+  }
+
+  // ---------- Toolbar actions ----------
+  $("splitBtn").addEventListener("click", () => {
+    const t = video.currentTime;
+    const idx = state.clips.findIndex((c) => t > c.start + 0.05 && t < c.end - 0.05);
+    if (idx === -1) return;
+    pushHistory();
+    const c = state.clips[idx];
+    const newClip = { id: newId(), start: t, end: c.end };
+    c.end = t;
+    state.clips.splice(idx + 1, 0, newClip);
+    renderAll();
+  });
+
+  $("addEmphBtn").addEventListener("click", () => {
+    pushHistory();
+    const t = video.currentTime;
+    const item = {
+      id: newId(), start: t, end: clamp(t + 2, 0, duration),
+      text: "強調字", size: 42, color: "#ffb020", pos: { x: 0.5, y: 0.5 },
+      w: DEFAULT_EMPH_W, h: DEFAULT_EMPH_H,
+    };
+    state.emphasis.push(item);
+    select("emphasis", item.id);
+    renderAll();
+  });
+
+  $("addStickerBtn").addEventListener("click", () => {
+    pushHistory();
+    const t = video.currentTime;
+    const item = {
+      id: newId(), start: t, end: clamp(t + 2.5, 0, duration),
+      text: "🔥 貼紙", size: 20, color: "#ffffff", pos: { x: 0.5, y: 0.78 },
+      w: DEFAULT_STICKER_W, h: DEFAULT_STICKER_H,
+    };
+    state.stickers.push(item);
+    select("sticker", item.id);
+    renderAll();
+  });
+
+  $("addLogoBtn").addEventListener("click", () => $("logoInput").click());
+  $("logoInput").addEventListener("change", (e) => {
+    const f = e.target.files[0];
+    if (!f) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      pushHistory();
+      const t = video.currentTime;
+      const item = {
+        id: newId(), start: t, end: clamp(t + 2.5, 0, duration),
+        text: "", size: 20, color: "#ffffff", pos: { x: 0.5, y: 0.5 },
+        w: DEFAULT_LOGO_W, h: DEFAULT_LOGO_H,
+        image: reader.result, imageName: f.name, effect: "float",
+      };
+      state.stickers.push(item);
+      select("sticker", item.id);
+      renderAll();
+    };
+    reader.readAsDataURL(f);
+    e.target.value = "";
+  });
+
+  $("deleteBtn").addEventListener("click", () => {
+    if (!state.selected) return;
+    pushHistory();
+    const { type, id } = state.selected;
+    if (type === "clip") state.clips = state.clips.filter((c) => c.id !== id);
+    if (type === "emphasis") state.emphasis = state.emphasis.filter((c) => c.id !== id);
+    if (type === "sticker") state.stickers = state.stickers.filter((c) => c.id !== id);
+    state.selected = null;
+    renderAll();
+  });
+
+  $("undoBtn").addEventListener("click", undo);
+  window.addEventListener("keydown", (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === "z") { e.preventDefault(); undo(); }
+  });
+
+  document.querySelector(".body-grid").addEventListener("click", (e) => {
+    if (e.target.closest(".tl-block") || e.target.closest(".overlay-item") || e.target.closest(".side-pane") || e.target.closest(".tl-toolbar") || e.target.closest("header")) return;
+    state.selected = null;
+    renderAll();
+  });
+
+  function select(type, id) {
+    state.selected = { type, id };
+    $("deleteBtn").disabled = false;
+    renderAll();
+  }
+
+  function findSelected() {
+    if (!state.selected) return null;
+    const { type, id } = state.selected;
+    const list = type === "clip" ? state.clips : type === "emphasis" ? state.emphasis : state.stickers;
+    return list.find((x) => x.id === id) || null;
+  }
+
+  // ---------- Side panel ----------
+  function renderSidePanel() {
+    const sel = state.selected;
+    const item = findSelected();
+    if (!sel || !item) {
+      $("deleteBtn").disabled = true;
+      sidePane.innerHTML = `<div class="panel-empty">點選時間軸上的片段／強調字／貼紙，可以在這裡編輯內容跟樣式。</div>`;
+      return;
+    }
+
+    if (sel.type === "clip") {
+      sidePane.innerHTML = `
+        <h2><span class="sw" style="background:var(--clip)"></span>片段</h2>
+        <label class="field"><span class="lbl">起點（秒）</span><input type="text" id="fStart" class="mono" value="${item.start.toFixed(2)}"></label>
+        <label class="field"><span class="lbl">終點（秒）</span><input type="text" id="fEnd" class="mono" value="${item.end.toFixed(2)}"></label>
+        <div class="hint">拖動時間軸上片段的左右邊緣，也可以直接調整範圍。</div>
+      `;
+      $("fStart").addEventListener("change", (e) => { item.start = clamp(parseFloat(e.target.value) || 0, 0, item.end - 0.1); renderAll(); });
+      $("fEnd").addEventListener("change", (e) => { item.end = clamp(parseFloat(e.target.value) || 0, item.start + 0.1, duration); renderAll(); });
+      return;
+    }
+
+    if (sel.type === "emphasis") {
+      sidePane.innerHTML = `
+        <h2><span class="sw" style="background:var(--emph)"></span>強調字</h2>
+        <label class="field"><span class="lbl">文字內容</span><textarea id="fText">${escapeHtml(item.text)}</textarea></label>
+        <div class="row2">
+          <label class="field"><span class="lbl">起點（秒）</span><input type="text" id="fStart" class="mono" value="${item.start.toFixed(2)}"></label>
+          <label class="field"><span class="lbl">終點（秒）</span><input type="text" id="fEnd" class="mono" value="${item.end.toFixed(2)}"></label>
+        </div>
+        <label class="field"><span class="lbl">字級：${item.size}px</span><input type="range" id="fSize" min="16" max="96" value="${item.size}"></label>
+        <label class="field"><span class="lbl">顏色</span><input type="color" id="fColor" value="${item.color}"></label>
+        <label class="field"><span class="lbl">畫面位置</span>
+          <div class="pos-grid" id="posGrid"></div>
+        </label>
+        <label class="field" style="flex-direction:row; align-items:center; gap:8px;">
+          <input type="checkbox" id="fEffect" ${item.effect === "float" ? "checked" : ""} style="width:auto;">
+          <span class="lbl" style="margin:0;">懸浮發光效果</span>
+        </label>
+        <div class="hint">框框大小跟字級無關：拖角落圓點調整的是框框範圍（放置區），字級只由上面的滑桿控制。也可以直接在預覽畫面上拖動文字調整位置。</div>
+      `;
+      buildPosGrid(item);
+      $("fText").addEventListener("input", (e) => { item.text = e.target.value; renderOverlayElements(); updateOverlays(); renderTrack(trackEmph, state.emphasis, "emph-block", (i) => i.text || "（空白）"); });
+      $("fStart").addEventListener("change", (e) => { item.start = clamp(parseFloat(e.target.value) || 0, 0, item.end - 0.1); renderAll(); });
+      $("fEnd").addEventListener("change", (e) => { item.end = clamp(parseFloat(e.target.value) || 0, item.start + 0.1, duration); renderAll(); });
+      $("fSize").addEventListener("input", (e) => { item.size = Number(e.target.value); renderOverlayElements(); updateOverlays(); renderSidePanelSizeLabel(e.target.value); });
+      $("fColor").addEventListener("input", (e) => { item.color = e.target.value; renderOverlayElements(); updateOverlays(); });
+      $("fEffect").addEventListener("change", (e) => { item.effect = e.target.checked ? "float" : "none"; renderOverlayElements(); updateOverlays(); });
+      return;
+    }
+
+    if (sel.type === "sticker") {
+      const isLogo = !!item.image;
+      sidePane.innerHTML = `
+        <h2><span class="sw" style="background:var(--sticker)"></span>${isLogo ? "Logo" : "貼紙／圖卡"}</h2>
+        ${isLogo ? `
+          <div class="logo-thumb-row">
+            <img class="logo-thumb" src="${item.image}" alt="">
+            <div class="logo-thumb-info">
+              <div class="logo-thumb-name">${escapeHtml(item.imageName || "logo")}</div>
+              <button id="fRemoveImg" class="ghost danger-txt">移除圖片</button>
+            </div>
+          </div>
+          <label class="field"><span class="lbl">說明文字（選填，顯示在圖片下方）</span><textarea id="fText">${escapeHtml(item.text)}</textarea></label>
+        ` : `
+          <label class="field"><span class="lbl">內容（文字或emoji）</span><textarea id="fText">${escapeHtml(item.text)}</textarea></label>
+        `}
+        <div class="row2">
+          <label class="field"><span class="lbl">起點（秒）</span><input type="text" id="fStart" class="mono" value="${item.start.toFixed(2)}"></label>
+          <label class="field"><span class="lbl">終點（秒）</span><input type="text" id="fEnd" class="mono" value="${item.end.toFixed(2)}"></label>
+        </div>
+        <label class="field"><span class="lbl">字級：${item.size || 20}px</span><input type="range" id="fSize" min="12" max="96" value="${item.size || 20}"></label>
+        <label class="field" style="flex-direction:row; align-items:center; gap:8px;">
+          <input type="checkbox" id="fEffect" ${item.effect === "float" ? "checked" : ""} style="width:auto;">
+          <span class="lbl" style="margin:0;">懸浮發光效果</span>
+        </label>
+        <div class="hint">框框大小跟字級無關：拖角落圓點調整的是框框範圍（放置區），字級只由上面的滑桿控制。也可以直接在預覽畫面上拖動${isLogo ? "Logo" : "貼紙"}調整位置。</div>
+      `;
+      $("fText").addEventListener("input", (e) => { item.text = e.target.value; renderOverlayElements(); updateOverlays(); renderTrack(trackSticker, state.stickers, "sticker-block", (i) => i.text || "貼紙"); });
+      $("fStart").addEventListener("change", (e) => { item.start = clamp(parseFloat(e.target.value) || 0, 0, item.end - 0.1); renderAll(); });
+      $("fEnd").addEventListener("change", (e) => { item.end = clamp(parseFloat(e.target.value) || 0, item.start + 0.1, duration); renderAll(); });
+      $("fSize").addEventListener("input", (e) => { item.size = Number(e.target.value); renderOverlayElements(); updateOverlays(); });
+      $("fEffect").addEventListener("change", (e) => { item.effect = e.target.checked ? "float" : "none"; renderOverlayElements(); updateOverlays(); });
+      if (isLogo) {
+        $("fRemoveImg").addEventListener("click", () => {
+          pushHistory();
+          delete item.image; delete item.imageName;
+          item.w = DEFAULT_STICKER_W; item.h = DEFAULT_STICKER_H;
+          renderAll();
+        });
+      }
+      return;
+    }
+  }
+
+  function renderSidePanelSizeLabel(v) {
+    const lbl = sidePane.querySelector("label.field span.lbl");
+  }
+
+  function buildPosGrid(item) {
+    const presets = [
+      [0.5, 0.18], [0.5, 0.5], [0.5, 0.85],
+    ];
+    const grid = $("posGrid");
+    const glyphs = ["⬆", "◎", "⬇"];
+    grid.innerHTML = "";
+    presets.forEach((p, i) => {
+      const b = document.createElement("button");
+      b.textContent = glyphs[i];
+      b.title = ["上方", "置中", "下方"][i];
+      if (Math.abs(item.pos.x - p[0]) < 0.02 && Math.abs(item.pos.y - p[1]) < 0.02) b.classList.add("active");
+      b.addEventListener("click", () => { item.pos.x = p[0]; item.pos.y = p[1]; renderAll(); });
+      grid.appendChild(b);
+    });
+  }
+
+  function escapeHtml(s) {
+    return (s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  }
+
+  // ---------- Export ----------
+  // Triggering an <a download> click doesn't work here: this tool runs
+  // inside a sandboxed iframe (the artifact host), which silently swallows
+  // programmatic file downloads with no error — the button just looks
+  // broken. Showing the JSON in a selectable textarea sidesteps that
+  // entirely, and a clipboard-write is attempted as a convenience on top.
+  function buildExportPlan() {
+    return {
+      sourceFile: state.fileName,
+      duration: duration,
+      clips: state.clips.map((c) => ({ start: +c.start.toFixed(3), end: +c.end.toFixed(3) })),
+      emphasisText: state.emphasis.map((e) => ({
+        text: e.text, start: +e.start.toFixed(3), end: +e.end.toFixed(3),
+        fontSize: e.size, color: e.color,
+        position: { x: +e.pos.x.toFixed(3), y: +e.pos.y.toFixed(3) },
+        box: { w: +(e.w ?? DEFAULT_EMPH_W).toFixed(3), h: +(e.h ?? DEFAULT_EMPH_H).toFixed(3) },
+        effect: e.effect || "none",
+      })),
+      stickers: state.stickers.map((s) => ({
+        text: s.text, start: +s.start.toFixed(3), end: +s.end.toFixed(3),
+        fontSize: s.size || 20, color: s.color,
+        position: { x: +s.pos.x.toFixed(3), y: +s.pos.y.toFixed(3) },
+        box: { w: +(s.w ?? (s.image ? DEFAULT_LOGO_W : DEFAULT_STICKER_W)).toFixed(3), h: +(s.h ?? (s.image ? DEFAULT_LOGO_H : DEFAULT_STICKER_H)).toFixed(3) },
+        effect: s.effect || "none",
+        image: s.image ? (s.imageName || "(已上傳圖片，檔名未知)") : null,
+      })),
+    };
+  }
+  $("exportBtn").addEventListener("click", () => {
+    const json = JSON.stringify(buildExportPlan(), null, 2);
+    $("exportTextarea").value = json;
+    $("exportModal").style.display = "flex";
+    $("exportCopyStatus").textContent = "";
+    $("exportTextarea").focus();
+    $("exportTextarea").select();
+  });
+  function closeExportModal() { $("exportModal").style.display = "none"; }
+  $("exportCloseBtn").addEventListener("click", closeExportModal);
+  $("exportCloseBtn2").addEventListener("click", closeExportModal);
+  $("exportModal").addEventListener("click", (e) => { if (e.target.id === "exportModal") closeExportModal(); });
+  $("exportCopyBtn").addEventListener("click", () => {
+    const ta = $("exportTextarea");
+    ta.focus(); ta.select();
+    const status = $("exportCopyStatus");
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(ta.value)
+        .then(() => { status.textContent = "已複製到剪貼簿。"; })
+        .catch(() => { status.textContent = "自動複製被擋住了，用 Cmd/Ctrl+C 手動複製上面選取的文字。"; });
+    } else {
+      status.textContent = "用 Cmd/Ctrl+C 手動複製上面選取的文字。";
+    }
+  });
+
+  // keyboard: space to play/pause when not typing
+  window.addEventListener("keydown", (e) => {
+    if (["INPUT", "TEXTAREA"].includes(document.activeElement.tagName)) return;
+    if (e.code === "Space" && duration) { e.preventDefault(); playBtn.click(); }
+  });
+})();
+</script>

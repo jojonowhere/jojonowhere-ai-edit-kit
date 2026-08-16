@@ -1,6 +1,6 @@
 # 第三方工具與服務
 
-這個資源包本身（`SKILL.md`、`rules/` 底下的所有規則、`setup.sh`）是原創內容，採用本 repo 的 `LICENSE`（MIT）。
+這個資源包本身（`SKILL.md`、`rules/` 底下的所有規則、`setup.sh`、`tools/cut_planner.html`、`remotion-starter/` 底下的原始碼、`scripts/` 底下的腳本、`新手上路指南.md`）是原創內容，採用本 repo 的 `LICENSE`（MIT）。
 
 實際執行剪輯時會呼叫以下外部工具／服務，各自的授權/條款獨立於本 repo，使用時請遵守它們各自的規定：
 
@@ -14,6 +14,9 @@
 | [思源黑體 Source Han Sans（TW子集）](https://github.com/adobe-fonts/source-han-sans) | 繁體中文字幕燒錄字體 | SIL Open Font License 1.1，著作權屬 Adobe |
 | [OpenCC](https://github.com/BYVoid/OpenCC) | 簡體轉繁體中文（含台灣用詞） | Apache License 2.0 |
 | [HyperFrames](https://github.com/heygen-com/hyperframes) | 選用，動畫疊加效果 | Apache License 2.0，著作權屬原專案；未實測，僅在使用者明確要求動畫效果時才需要 |
+| [Remotion](https://www.remotion.dev/) + React | `remotion-starter/` 跑透明通道正式素材算圖用的框架，透過 `npm install` 安裝，本 repo 不含其原始碼 | 需自行確認授權（社群/個人使用與商業使用條款不同，官方條款以其網站為準） |
+| [librosa](https://librosa.org/) / [SciPy](https://scipy.org/) / [NumPy](https://numpy.org/) | `scripts/sync_multicam.py` 本機音訊交叉相關比對用 | 皆為 BSD License |
+| [Pillow (PIL)](https://python-pillow.org/) | `scripts/digital_zoom.py`、`scripts/check_alpha.py` 逐幀影像處理/合成檢查用 | MIT-CMU License |
 
 本資源包不包含上述任何項目的原始碼副本——`setup.sh` 只會引導安裝或直接從官方來源下載，安裝到你自己的電腦上，使用時請直接遵守各項目自己的授權條款。
 
