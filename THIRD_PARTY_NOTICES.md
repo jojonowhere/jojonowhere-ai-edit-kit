@@ -17,7 +17,8 @@
 | [Remotion](https://www.remotion.dev/) + React | `remotion-starter/` 跑透明通道正式素材算圖用的框架，透過 `npm install` 安裝，本 repo 不含其原始碼 | 需自行確認授權（社群/個人使用與商業使用條款不同，官方條款以其網站為準） |
 | [librosa](https://librosa.org/) / [SciPy](https://scipy.org/) / [NumPy](https://numpy.org/) | `scripts/sync_multicam.py` 本機音訊交叉相關比對用 | 皆為 BSD License |
 | [Pillow (PIL)](https://python-pillow.org/) | `scripts/digital_zoom.py`、`scripts/check_alpha.py` 逐幀影像處理/合成檢查用 | MIT-CMU License |
-| [`/watch`（claude-video）](https://github.com/bradautomates/claude-video) | 選用，Claude Code plugin，讓Claude能「看」影片內容（下載/抽幀/轉錄後逐格讀取），適合分析參考影片風格或診斷螢幕錄影裡的問題，跟本repo的剪輯流程互補但各自獨立 | MIT License，著作權屬 bradautomates；透過 `/plugin marketplace add bradautomates/claude-video` 安裝，本repo不含其原始碼。背後依賴 `yt-dlp`／`ffmpeg`，沒有字幕的影片會退回呼叫Groq或OpenAI的Whisper API做轉錄——這種情況等於把音檔上傳到那些服務，比照本repo「上傳素材前重新取得明確同意」的原則處理 |
+| [yt-dlp](https://github.com/yt-dlp/yt-dlp) | `/watch` plugin下載參考影片用，`setup.sh` 透過Homebrew安裝 | The Unlicense（公有領域） |
+| [`/watch`（claude-video）](https://github.com/bradautomates/claude-video) | 選用，Claude Code plugin，讓Claude能「看」影片內容（下載/抽幀/轉錄後逐格讀取），適合分析參考影片風格或診斷螢幕錄影裡的問題，跟本repo的剪輯流程互補但各自獨立 | MIT License，著作權屬 bradautomates；`setup.sh` 第4步會自動安裝（前提是本機已經裝了獨立版Claude Code CLI，只有Claude桌面版偵測不到會自動跳過），或自己手動 `claude plugin marketplace add bradautomates/claude-video && claude plugin install watch@claude-video`，本repo不含其原始碼。背後依賴 `yt-dlp`／`ffmpeg`，沒有字幕的影片會退回呼叫Groq或OpenAI的Whisper API做轉錄——這種情況等於把音檔上傳到那些服務，比照本repo「上傳素材前重新取得明確同意」的原則處理 |
 
 本資源包不包含上述任何項目的原始碼副本——`setup.sh` 只會引導安裝或直接從官方來源下載，安裝到你自己的電腦上，使用時請直接遵守各項目自己的授權條款。
 

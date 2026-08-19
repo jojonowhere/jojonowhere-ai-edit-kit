@@ -18,7 +18,7 @@ cd jojonowhere-ai-edit-kit
 bash setup.sh
 ```
 
-`setup.sh` 會檢查/安裝：`git`、`uv`、`node`、`ffmpeg`（透過Homebrew）、`video-use`（剪輯引擎）、思源黑體 TW 字幕字體。最後會引導你自己申請 ElevenLabs API Key（免費額度，逐字稿轉寫用），這一步不能自動化，需要你自己動手。
+`setup.sh` 會檢查/安裝：`git`、`uv`、`node`、`ffmpeg`（透過Homebrew）、`video-use`（剪輯引擎）、思源黑體 TW 字幕字體、`watch@claude-video` plugin（選用，需要你已經裝了獨立版Claude Code CLI才會生效，見下方third-party notice）。最後會引導你自己申請 ElevenLabs API Key（免費額度，逐字稿轉寫用），這一步不能自動化，需要你自己動手。
 
 ## 怎麼用
 

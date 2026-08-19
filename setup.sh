@@ -11,7 +11,7 @@ if ! command -v brew >/dev/null 2>&1; then
   exit 1
 fi
 
-echo "--- 1/4 基礎工具 ---"
+echo "--- 1/5 基礎工具 ---"
 for pkg in git uv node ffmpeg; do
   if brew list --formula "$pkg" >/dev/null 2>&1; then
     echo "已安裝: $pkg"
@@ -22,7 +22,7 @@ for pkg in git uv node ffmpeg; do
 done
 
 echo ""
-echo "--- 2/4 video-use（剪輯引擎，MIT授權，來自 browser-use） ---"
+echo "--- 2/5 video-use（剪輯引擎，MIT授權，來自 browser-use） ---"
 VIDEO_USE_DIR="$HOME/Developer/video-use"
 if [ -d "$VIDEO_USE_DIR" ]; then
   echo "已存在: $VIDEO_USE_DIR"
@@ -32,7 +32,7 @@ fi
 (cd "$VIDEO_USE_DIR" && uv sync)
 
 echo ""
-echo "--- 3/4 思源黑體 TW 字幕字體（SIL Open Font License，來自 Adobe 官方 repo） ---"
+echo "--- 3/5 思源黑體 TW 字幕字體（SIL Open Font License，來自 Adobe 官方 repo） ---"
 FONT_DIR="$HOME/Library/Fonts"
 FONT_SRC="https://github.com/adobe-fonts/source-han-sans/raw/release/SubsetOTF/TW"
 mkdir -p "$FONT_DIR"
@@ -47,7 +47,29 @@ for weight in Regular Bold; do
 done
 
 echo ""
-echo "--- 4/4 ElevenLabs API Key（逐字稿轉寫用，付費API，每人要自己申請） ---"
+echo "--- 4/5 /watch plugin（選用，分析參考影片風格用，見 rules/10） ---"
+if ! command -v claude >/dev/null 2>&1; then
+  echo "沒偵測到 claude 這個獨立CLI指令（例如目前只有Claude桌面版），跳過這步。"
+  echo "之後想裝的話：先安裝 Claude Code CLI（npm install -g @anthropic-ai/claude-code），"
+  echo "再執行：claude plugin marketplace add bradautomates/claude-video && claude plugin install watch@claude-video"
+elif claude plugin list 2>/dev/null | grep -q "watch@claude-video"; then
+  echo "已安裝: watch@claude-video"
+else
+  echo "安裝中: watch@claude-video plugin（MIT授權，來自 bradautomates，非Anthropic官方）"
+  claude plugin marketplace add bradautomates/claude-video
+  claude plugin install watch@claude-video
+fi
+if command -v brew >/dev/null 2>&1; then
+  if brew list --formula yt-dlp >/dev/null 2>&1; then
+    echo "已安裝: yt-dlp"
+  else
+    echo "安裝中: yt-dlp（/watch下載影片用）"
+    brew install yt-dlp
+  fi
+fi
+
+echo ""
+echo "--- 5/5 ElevenLabs API Key（逐字稿轉寫用，付費API，每人要自己申請） ---"
 if [ -n "$ELEVENLABS_API_KEY" ]; then
   echo "偵測到 ELEVENLABS_API_KEY 已設定，跳過。"
 else
