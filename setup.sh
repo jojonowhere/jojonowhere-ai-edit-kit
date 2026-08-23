@@ -31,6 +31,18 @@ else
 fi
 (cd "$VIDEO_USE_DIR" && uv sync)
 
+# video-use 的轉寫腳本目前上游版本寫死用舊的 scribe_v1，準確度明顯較差。
+# 這是第三方repo，每次重新clone都會被還原，所以每次跑setup都要重新檢查/修正這行。
+TRANSCRIBE_PY="$VIDEO_USE_DIR/helpers/transcribe.py"
+if [ -f "$TRANSCRIBE_PY" ]; then
+  if grep -q '"model_id": "scribe_v1"' "$TRANSCRIBE_PY"; then
+    echo "修正: video-use 轉寫腳本 model_id (scribe_v1 -> scribe_v2)"
+    sed -i '' 's/"model_id": "scribe_v1"/"model_id": "scribe_v2"/' "$TRANSCRIBE_PY"
+  else
+    echo "video-use 轉寫腳本 model_id 已是正確版本"
+  fi
+fi
+
 echo ""
 echo "--- 3/5 思源黑體 TW 字幕字體（SIL Open Font License，來自 Adobe 官方 repo） ---"
 FONT_DIR="$HOME/Library/Fonts"
