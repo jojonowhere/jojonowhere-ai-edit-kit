@@ -48,7 +48,8 @@ bash setup.sh
 │   ├── sync_multicam.py              ← 多機位音訊比對，抓隨時間變化的漂移量（見 02）
 │   ├── parse_prproj.py               ← 讀既有Premiere專案，把已剪好的序列反推成EDL JSON
 │   ├── digital_zoom.py               ← 逐幀裁切+放大做數位變焦（ffmpeg的crop filter做不到逐幀變化）
-│   └── check_alpha.py                ← 驗證Remotion輸出的透明通道，產生黑底/亮底合成預覽（見 08）
+│   ├── check_alpha.py                ← 驗證Remotion輸出的透明通道，產生黑底/亮底合成預覽（見 08）
+│   └── floating_glow_card.py         ← 把靜態照片/截圖做成懸浮光暈卡片PNG（見 07）
 └── rules/
     ├── 01-剪輯節奏與轉場規則.md
     ├── 02-多機位同步規則.md            ← 多鏡位（口播＋螢幕錄影）同步對齊
