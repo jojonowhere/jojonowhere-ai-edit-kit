@@ -22,13 +22,21 @@ def rounded_mask(size, radius):
     return m
 
 
-def light_blob(canvas_size, card_size, scale_w, scale_h, blur, alpha):
+def light_blob(canvas_size, card_size, scale_w, scale_h, blur, alpha, card_radius):
     cw, ch = canvas_size
     card_w, card_h = card_size
     bw, bh = round(card_w * scale_w), round(card_h * scale_h)
     shape = Image.new("RGBA", (cw, ch), (0, 0, 0, 0))
     blob = Image.new("RGBA", (bw, bh), (255, 255, 255, 255))
-    blob.putalpha(rounded_mask((bw, bh), min(bw, bh) // 2))
+    # 【2026-08-28修正】半徑原本是 min(bw,bh)//2——對這種寬扁的卡片（寬遠大於高）
+    # 這個算式等於「短邊的一半」，把兩端拉成完整半圓，疊加模糊後外圍幾層讀起來
+    # 就是一個圓形/橢圓形光暈，不是跟著卡片的矩形輪廓走（使用者原話：「光暈是背後
+    # 一個圓形，它要跟著框是一樣的形狀，是方形的」）。改成半徑跟著卡片本身的圓角
+    # 比例走（card_radius隨scale等比放大），光暈才會維持「圓角矩形」的輪廓，不會
+    # 被拉成圓形。四層各自的比例保持一致，疊起來的漸層也更連續、不會有明顯的層次
+    # 斷點。
+    blob_radius = round(card_radius * (scale_w + scale_h) / 2)
+    blob.putalpha(rounded_mask((bw, bh), min(blob_radius, min(bw, bh) // 2)))
     x, y = (cw - bw) // 2, (ch - bh) // 2
     shape.paste(blob, (x, y), blob)
     shape = shape.filter(ImageFilter.GaussianBlur(blur))
@@ -96,7 +104,7 @@ def main():
     ]
     reduce = (2 / 3) * args.glow_strength
     for s_w, s_h, blur, alpha in glow_layers:
-        canvas = Image.alpha_composite(canvas, light_blob((cw, ch), (card_w, card_h), s_w, s_h, blur, alpha * reduce))
+        canvas = Image.alpha_composite(canvas, light_blob((cw, ch), (card_w, card_h), s_w, s_h, blur, alpha * reduce, card_radius))
 
     shadow = Image.new("RGBA", (cw, ch), (0, 0, 0, 0))
     shadow_solid = Image.new("RGBA", (card_w, card_h), (0, 0, 0, 255))
